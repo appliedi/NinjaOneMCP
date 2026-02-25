@@ -35,11 +35,11 @@ All source lives in `src/` and compiles to `dist/`. There is also a `server/` di
 ### Source Files (src/)
 
 - **`index.ts`** — Entry point. Contains:
-  - `TOOLS` array: all MCP tool definitions with `inputSchema` JSON schemas
-  - `NinjaOneMCPServer` class: creates the MCP `Server`, registers `ListToolsRequestSchema` and `CallToolRequestSchema` handlers
-  - `routeToolCall()` / `callAPIMethod()`: giant switch statements mapping tool names → `NinjaOneAPI` method calls
+  - `TOOLS` array: all 79 MCP tool definitions with `inputSchema` JSON schemas
+  - `ToolHandler` class: encapsulates all tool routing logic (`routeToolCall()` / `callAPIMethod()` switch statements, plus `getAllDevices()`, `searchDevicesByName()`, `findWindows11Devices()` helpers). Can be registered on any `Server` instance.
+  - `createMCPServer(api)`: factory function that creates a configured MCP `Server` with tool handlers
+  - `NinjaOneMCPServer` class: manages the `NinjaOneAPI` instance and transport selection
   - `main()`: transport selection based on `MCP_MODE` env var (stdio/http/sse)
-  - Helper methods `searchDevicesByName()` and `findWindows11Devices()` do client-side filtering
 
 - **`ninja-api.ts`** — `NinjaOneAPI` class: OAuth2 client-credentials flow, automatic region auto-detection, all REST API wrappers. Key patterns:
   - Token caching with 5-minute refresh buffer
@@ -47,7 +47,7 @@ All source lives in `src/` and compiles to `dist/`. There is also a `server/` di
   - Region resolution: explicit `NINJA_BASE_URL` > `NINJA_REGION` key > auto-detect by trying all candidates
   - Maintenance window uses Unix epoch seconds (not milliseconds)
 
-- **`transport/http.ts`** — Express-based HTTP and SSE server factories (`createHttpServer`, `createSseServer`)
+- **`transport/http.ts`** — Express + MCP Streamable HTTP transport. `createHttpServer(serverFactory, port)` accepts a factory function to create per-session MCP Server instances. Includes token auth middleware and CORS configuration.
 
 - **`test.ts`** — Integration test suite class (`NinjaOneTestSuite`) that tests API connectivity, devices, orgs, alerts, and queries
 
@@ -116,6 +116,8 @@ The server runs on Google Cloud Run in project `ninjaone-mcp`, region `us-centra
 ### Architecture
 
 - Multi-stage Dockerfile: builds TypeScript in stage 1, copies only compiled JS + prod deps to stage 2
+- Uses MCP Streamable HTTP transport (`StreamableHTTPServerTransport` from SDK) at `/mcp` endpoint
+- Each client session gets its own MCP Server + Transport pair via factory pattern; `NinjaOneAPI` instance shared across sessions for OAuth token caching
 - Runs in HTTP mode (`MCP_MODE=http`) on port 8080
 - Secrets stored in GCP Secret Manager (not env vars): `NINJA_CLIENT_ID`, `NINJA_CLIENT_SECRET`, `NINJA_BASE_URL`, `MCP_AUTH_TOKEN`
 - Scales 0-3 instances (scales to zero when idle), 512Mi memory, 1 CPU
@@ -168,11 +170,13 @@ gcloud run services update ninjaone-mcp \
 
 ### MCP Client Registration URL
 
-When registering this server with an MCP client over HTTP:
+When registering this server with an MCP client (e.g., Claude), use the `/mcp` endpoint:
 
 ```
-https://ninjaone-mcp-533144411057.us-central1.run.app?token=<MCP_AUTH_TOKEN>
+https://ninjaone-mcp-533144411057.us-central1.run.app/mcp?token=<MCP_AUTH_TOKEN>
 ```
+
+The server uses the MCP Streamable HTTP protocol — clients must send `Accept: application/json, text/event-stream` headers (Claude does this automatically).
 
 ### Useful Commands
 
