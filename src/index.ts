@@ -38,6 +38,29 @@ const TOOLS = [
     }
   },
   {
+    name: 'get_devices_detailed',
+    description: 'List devices with full details including warranty, references, and system info. Heavier than get_devices.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pageSize: { type: 'number', description: 'Number of results per page (default: 50)' },
+        after: { type: 'number', description: 'Pagination cursor' },
+        df: { type: 'string', description: 'Simple device filter (e.g., "offline = true")' }
+      }
+    }
+  },
+  {
+    name: 'get_device_warranty',
+    description: 'Get warranty information for a specific device. Returns warranty start/end dates, status, and manufacturer fulfillment date for supported OEMs (Dell, HP, Lenovo, etc.).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Device ID' }
+      },
+      required: ['id']
+    }
+  },
+  {
     name: 'list_regions',
     description: 'List supported NinjaONE regions and base URLs',
     inputSchema: { type: 'object', properties: {} }
@@ -1062,8 +1085,12 @@ class ToolHandler {
       // Device Management
       case 'get_devices':
         return this.api.getDevices(args.df, this.clampPageSize(args.pageSize), args.after);
+      case 'get_devices_detailed':
+        return this.api.getDevicesDetailed(args.df, this.clampPageSize(args.pageSize), args.after);
       case 'get_device':
         return this.api.getDevice(args.id);
+      case 'get_device_warranty':
+        return this.getDeviceWarranty(args.id);
       case 'get_device_dashboard_url':
         return this.api.getDeviceDashboardUrl(args.id);
       case 'reboot_device':
@@ -1338,6 +1365,41 @@ class ToolHandler {
     }
 
     return allDevices;
+  }
+
+  private formatEpochSeconds(epoch: number | null | undefined): string | null {
+    if (!epoch) return null;
+    return new Date(epoch * 1000).toISOString().slice(0, 10);
+  }
+
+  private async getDeviceWarranty(id: number) {
+    const device = await this.api.getDevice(id);
+    const warranty = device?.references?.warranty;
+    const now = Math.floor(Date.now() / 1000);
+
+    let status: string;
+    if (!warranty?.endDate) {
+      status = 'UNKNOWN';
+    } else if (warranty.endDate > now) {
+      status = 'ACTIVE';
+    } else {
+      status = 'EXPIRED';
+    }
+
+    return {
+      deviceId: id,
+      systemName: device?.systemName ?? null,
+      displayName: device?.displayName ?? null,
+      nodeClass: device?.nodeClass ?? null,
+      warranty: {
+        status,
+        startDate: this.formatEpochSeconds(warranty?.startDate),
+        endDate: this.formatEpochSeconds(warranty?.endDate),
+        manufacturerFulfillmentDate: this.formatEpochSeconds(warranty?.manufacturerFulfillmentDate),
+        startDateEpoch: warranty?.startDate ?? null,
+        endDateEpoch: warranty?.endDate ?? null,
+      }
+    };
   }
 
   private async searchDevicesByName(searchName: string, limit: number) {

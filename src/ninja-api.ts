@@ -269,6 +269,10 @@ export class NinjaOneAPI {
     return this.makeRequest(`/v2/devices${this.buildQuery({ df, pageSize, after })}`);
   }
 
+  async getDevicesDetailed(df?: string, pageSize?: number, after?: number): Promise<any> {
+    return this.makeRequest(`/v2/devices-detailed${this.buildQuery({ df, pageSize, after })}`);
+  }
+
   async getDevice(id: number): Promise<any> {
     // Owner information is available via the assignedOwnerUid field in this response.
     return this.makeRequest(`/v2/device/${id}`);
