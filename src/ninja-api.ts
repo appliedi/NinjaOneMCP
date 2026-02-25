@@ -29,6 +29,8 @@ export class NinjaOneAPI {
     oc: 'https://oc.ninjarmm.com',
   };
 
+  private static readonly ALLOWED_DOMAIN_PATTERN = /^https:\/\/[\w-]+\.ninjarmm\.com$/;
+
   private static readonly DEFAULT_CANDIDATES: string[] = [
     'https://app.ninjarmm.com',
     'https://us2.ninjarmm.com',
@@ -106,16 +108,23 @@ export class NinjaOneAPI {
       scope: 'monitoring management control'
     });
 
-    const response = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      throw new Error(`OAuth token request failed: ${response.status} ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`OAuth token request failed: ${response.status} ${response.statusText}`);
+      }
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
     }
-    return await response.json();
   }
 
   private normalizeBaseUrl(url: string): string {
@@ -135,19 +144,23 @@ export class NinjaOneAPI {
   }
 
   private async makeRequest(
-    endpoint: string, 
+    endpoint: string,
     method: string = 'GET',
     body?: any
   ): Promise<any> {
     const token = await this.getAccessToken();
     const base = this.baseUrl || NinjaOneAPI.DEFAULT_CANDIDATES[0];
-    
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+
     const options: RequestInit = {
       method,
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': '*/*'
-      }
+      },
+      signal: controller.signal,
     };
 
     if (body && ['POST', 'PUT', 'PATCH'].includes(method)) {
@@ -158,7 +171,12 @@ export class NinjaOneAPI {
       options.body = JSON.stringify(body);
     }
 
-    const response = await fetch(`${base}${endpoint}`, options);
+    let response: Response;
+    try {
+      response = await fetch(`${base}${endpoint}`, options);
+    } finally {
+      clearTimeout(timeout);
+    }
     
     if (!response.ok) {
       const errorText = await response.text();
@@ -194,7 +212,14 @@ export class NinjaOneAPI {
   }
 
   public setBaseUrl(url: string): void {
-    this.baseUrl = this.normalizeBaseUrl(url);
+    const normalized = this.normalizeBaseUrl(url);
+    const knownUrls = Object.values(NinjaOneAPI.REGION_MAP);
+    if (!knownUrls.includes(normalized) && !NinjaOneAPI.ALLOWED_DOMAIN_PATTERN.test(normalized)) {
+      throw new Error(
+        `Invalid base URL: ${normalized}. URL must be a known NinjaRMM region or match https://<subdomain>.ninjarmm.com`
+      );
+    }
+    this.baseUrl = normalized;
     this.baseUrlExplicit = true;
     this.accessToken = null;
     this.tokenExpiry = null;
@@ -643,7 +668,54 @@ export class NinjaOneAPI {
     return this.makeRequest(`/v2/queries/backup/usage${this.buildQuery({ df, cursor, pageSize })}`);
   }
 
-  // Activities and Software
+  // Custom Fields - Device
+
+  async getDeviceCustomFields(id: number, withInheritance?: boolean): Promise<any> {
+    return this.makeRequest(`/v2/device/${id}/custom-fields${this.buildQuery({ withInheritance })}`);
+  }
+
+  async updateDeviceCustomFields(id: number, fields: Record<string, unknown>): Promise<any> {
+    return this.makeRequest(`/v2/device/${id}/custom-fields`, 'PATCH', fields);
+  }
+
+  // Custom Fields - Organization
+
+  async getOrganizationCustomFields(id: number, withInheritance?: boolean): Promise<any> {
+    return this.makeRequest(`/v2/organization/${id}/custom-fields${this.buildQuery({ withInheritance })}`);
+  }
+
+  async updateOrganizationCustomFields(id: number, fields: Record<string, unknown>): Promise<any> {
+    return this.makeRequest(`/v2/organization/${id}/custom-fields`, 'PATCH', fields);
+  }
+
+  // Groups & Device Membership
+
+  async getGroups(): Promise<any> {
+    return this.makeRequest('/v2/groups');
+  }
+
+  async getGroupDeviceIds(id: number): Promise<any> {
+    return this.makeRequest(`/v2/group/${id}/device-ids`);
+  }
+
+  // Global Activities (Audit Log)
+
+  async getActivities(
+    activityClass?: string,
+    before?: string,
+    after?: string,
+    type?: string,
+    status?: string,
+    user?: string,
+    seriesUid?: string,
+    pageSize?: number
+  ): Promise<any> {
+    return this.makeRequest(`/v2/activities${this.buildQuery({
+      class: activityClass, before, after, type, status, user, seriesUid, pageSize
+    })}`);
+  }
+
+  // Device Activities and Software
   
   async getDeviceActivities(id: number, pageSize?: number, olderThan?: string): Promise<any> {
     return this.makeRequest(`/v2/device/${id}/activities${this.buildQuery({ pageSize, olderThan })}`);

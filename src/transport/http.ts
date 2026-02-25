@@ -16,7 +16,7 @@ export async function createHttpServer(mcpServer: Server, port: number): Promise
 
   // Security and parsing middleware
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || 'http://localhost',
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -30,7 +30,7 @@ export async function createHttpServer(mcpServer: Server, port: number): Promise
     res.json({
       status: 'healthy',
       service: 'ninjaone-mcp-server',
-      version: '1.2.0',
+      version: '1.3.0',
       timestamp: new Date().toISOString(),
       transport: 'http'
     });
@@ -40,7 +40,7 @@ export async function createHttpServer(mcpServer: Server, port: number): Promise
   app.get('/info', (req: Request, res: Response) => {
     res.json({
       name: 'ninjaone-mcp-server',
-      version: '1.2.0',
+      version: '1.3.0',
       description: 'NinjaONE RMM MCP Server with HTTP transport',
       capabilities: {
         tools: true,
@@ -120,7 +120,7 @@ export async function createSseServer(mcpServer: Server, port: number): Promise<
 
   // Security and parsing middleware
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || 'http://localhost',
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cache-Control']
@@ -133,7 +133,7 @@ export async function createSseServer(mcpServer: Server, port: number): Promise<
     res.json({
       status: 'healthy',
       service: 'ninjaone-mcp-server',
-      version: '1.0.0',
+      version: '1.3.0',
       timestamp: new Date().toISOString(),
       transport: 'sse'
     });
@@ -141,13 +141,11 @@ export async function createSseServer(mcpServer: Server, port: number): Promise<
 
   // SSE endpoint for real-time communication
   app.get('/events', async (req: Request, res: Response) => {
-    // Set SSE headers
+    // Set SSE headers (CORS handled by middleware)
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+      'Connection': 'keep-alive'
     });
 
     // Send initial connection event

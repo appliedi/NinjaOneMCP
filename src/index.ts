@@ -124,6 +124,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
+        df: { type: 'string', description: 'Device filter (e.g., "org = 1" or "offline = true")' },
         since: { type: 'string', description: 'ISO timestamp for alerts since' }
       }
     }
@@ -140,23 +141,29 @@ const TOOLS = [
       required: ['id']
     }
   },
+  {
+    name: 'get_activities',
+    description: 'Get global activity/audit log with filtering. Returns system-wide events (logins, policy changes, device events, etc.)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        class: { type: 'string', enum: ['SYSTEM', 'DEVICE', 'USER', 'ALL'], description: 'Activity class filter' },
+        before: { type: 'string', description: 'Return activities before this cursor/timestamp' },
+        after: { type: 'string', description: 'Return activities after this cursor/timestamp' },
+        type: { type: 'string', description: 'Activity type filter' },
+        status: { type: 'string', description: 'Activity status filter' },
+        user: { type: 'string', description: 'Filter by user' },
+        seriesUid: { type: 'string', description: 'Filter by series UID' },
+        pageSize: { type: 'number', description: 'Number of results per page' }
+      }
+    }
+  },
   /**
    * Get installed software inventory for a specific device.
    * Returns the list of installed applications including version, publisher,
    * and install date metadata for asset and compliance tracking.
    * Useful for: software asset management, compliance audits, security assessments.
    */
-  {
-    name: 'get_device_software',
-    description: 'Get installed software for a specific device',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'number', description: 'Device ID' }
-      },
-      required: ['id']
-    }
-  },
   {
     name: 'get_device_software',
     description: 'Get installed software for a specific device',
@@ -860,6 +867,76 @@ const TOOLS = [
         pageSize: { type: 'number', description: 'Number of results per page (default: 50)' }
       }
     }
+  },
+
+  // Groups & Device Membership
+  {
+    name: 'get_groups',
+    description: 'List all device groups (saved searches/filters)',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'get_group_device_ids',
+    description: 'Get device IDs belonging to a group',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Group ID' }
+      },
+      required: ['id']
+    }
+  },
+
+  // Custom Fields - Device
+  {
+    name: 'get_device_custom_fields',
+    description: 'Get custom field values for a specific device',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Device ID' },
+        withInheritance: { type: 'boolean', description: 'Include inherited field values (default: false)' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'update_device_custom_fields',
+    description: 'Update custom field values for a specific device',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Device ID' },
+        fields: { type: 'object', description: 'Key-value pairs of custom field names and their new values' }
+      },
+      required: ['id', 'fields']
+    }
+  },
+
+  // Custom Fields - Organization
+  {
+    name: 'get_organization_custom_fields',
+    description: 'Get custom field values for a specific organization',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Organization ID' },
+        withInheritance: { type: 'boolean', description: 'Include inherited field values (default: false)' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'update_organization_custom_fields',
+    description: 'Update custom field values for a specific organization',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Organization ID' },
+        fields: { type: 'object', description: 'Key-value pairs of custom field names and their new values' }
+      },
+      required: ['id', 'fields']
+    }
   }
 ];
 
@@ -876,7 +953,7 @@ class NinjaOneMCPServer {
       this.server = new Server(
         {
           name: 'ninjaone-mcp-server',
-          version: '1.2.0',
+          version: '1.3.0',
         },
         {
           capabilities: {
@@ -1047,7 +1124,7 @@ class NinjaOneMCPServer {
       case 'generate_organization_installer':
         return this.api.generateOrganizationInstaller(args.installerType, args.locationId, args.organizationId);
       case 'get_alerts':
-        return this.api.getAlerts(undefined, args.since);
+        return this.api.getAlerts(args.df, args.since);
       case 'get_alert':
         return this.api.getAlert(args.uid);
       case 'reset_alert':
@@ -1056,11 +1133,8 @@ class NinjaOneMCPServer {
         return this.api.getDeviceAlerts(args.id, args.lang);
       case 'get_device_activities':
         return this.api.getDeviceActivities(args.id, args.pageSize);
-      case 'get_device_software':
-        if (typeof args.id !== 'number') {
-          throw new McpError(ErrorCode.InvalidParams, 'Device ID must be a number');
-        }
-        return this.api.getDeviceSoftware(args.id);
+      case 'get_activities':
+        return this.api.getActivities(args.class, args.before, args.after, args.type, args.status, args.user, args.seriesUid, args.pageSize);
       case 'search_devices_by_name':
         return this.searchDevicesByName(args.name, args.limit || 10);
       case 'find_windows11_devices':
@@ -1149,6 +1223,22 @@ class NinjaOneMCPServer {
       case 'query_backup_usage':
         return this.api.queryBackupUsage(args.df, args.cursor, args.pageSize || 50);
 
+      // Groups & Device Membership
+      case 'get_groups':
+        return this.api.getGroups();
+      case 'get_group_device_ids':
+        return this.api.getGroupDeviceIds(args.id);
+
+      // Custom Fields
+      case 'get_device_custom_fields':
+        return this.api.getDeviceCustomFields(args.id, args.withInheritance);
+      case 'update_device_custom_fields':
+        return this.api.updateDeviceCustomFields(args.id, args.fields);
+      case 'get_organization_custom_fields':
+        return this.api.getOrganizationCustomFields(args.id, args.withInheritance);
+      case 'update_organization_custom_fields':
+        return this.api.updateOrganizationCustomFields(args.id, args.fields);
+
       // Users & Roles
       case 'get_end_users':
         return this.api.getEndUsers();
@@ -1212,24 +1302,42 @@ class NinjaOneMCPServer {
     }
   }
 
+  private async getAllDevices(df?: string): Promise<any[]> {
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = 50;
+    const allDevices: any[] = [];
+    let after: number | undefined;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const batch = await this.api.getDevices(df, PAGE_SIZE, after);
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      allDevices.push(...batch);
+      if (batch.length < PAGE_SIZE) break;
+      after = batch[batch.length - 1].id;
+    }
+
+    return allDevices;
+  }
+
   private async searchDevicesByName(searchName: string, limit: number) {
-    const devices = await this.api.getDevices(undefined, 200);
+    const devices = await this.getAllDevices();
     const filtered = devices
-      .filter((device: any) => 
+      .filter((device: any) =>
         device.systemName?.toLowerCase().includes(searchName.toLowerCase()) ||
         device.displayName?.toLowerCase().includes(searchName.toLowerCase())
       )
       .slice(0, limit);
-    
+
     return {
       searchTerm: searchName,
+      totalDevices: devices.length,
       totalFound: filtered.length,
       devices: filtered
     };
   }
 
   private async findWindows11Devices(limit: number) {
-    const devices = await this.api.getDevices(undefined, 200);
+    const devices = await this.getAllDevices();
     const windowsDevices = devices.filter((device: any) => 
       device.nodeClass === 'WINDOWS_WORKSTATION' || device.nodeClass === 'WINDOWS_SERVER'
     );
@@ -1259,6 +1367,7 @@ class NinjaOneMCPServer {
     }
 
     return {
+      totalDevices: devices.length,
       totalFound: windows11Devices.length,
       devices: windows11Devices
     };
