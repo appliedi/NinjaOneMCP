@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NinjaONE MCP Server — a TypeScript MCP (Model Context Protocol) server that wraps the NinjaONE RMM platform API. It exposes 79 tools for device management, patch management, organization/contact/user CRUD, alerts, queries, custom fields, groups, and audit logs. Distributed as a source project, `.mcpb` bundle for Claude Desktop, and as a Cloud Run deployment on GCP.
+NinjaONE MCP Server — a TypeScript MCP (Model Context Protocol) server that wraps the NinjaONE RMM platform API. It exposes 81 tools for device management, warranty tracking, patch management, organization/contact/user CRUD, alerts, queries, custom fields, groups, and audit logs. Distributed as a source project, `.mcpb` bundle for Claude Desktop, and as a Cloud Run deployment on GCP.
 
 ## Build & Run Commands
 
@@ -35,8 +35,8 @@ All source lives in `src/` and compiles to `dist/`. There is also a `server/` di
 ### Source Files (src/)
 
 - **`index.ts`** — Entry point. Contains:
-  - `TOOLS` array: all 79 MCP tool definitions with `inputSchema` JSON schemas
-  - `ToolHandler` class: encapsulates all tool routing logic (`routeToolCall()` / `callAPIMethod()` switch statements, plus `getAllDevices()`, `searchDevicesByName()`, `findWindows11Devices()` helpers). Can be registered on any `Server` instance.
+  - `TOOLS` array: all 81 MCP tool definitions with `inputSchema` JSON schemas
+  - `ToolHandler` class: encapsulates all tool routing logic (`routeToolCall()` / `callAPIMethod()` switch statements, plus `getAllDevices()`, `searchDevicesByName()`, `findWindows11Devices()`, `getDeviceWarranty()` helpers). Can be registered on any `Server` instance.
   - `createMCPServer(api)`: factory function that creates a configured MCP `Server` with tool handlers
   - `NinjaOneMCPServer` class: manages the `NinjaOneAPI` instance and transport selection
   - `main()`: transport selection based on `MCP_MODE` env var (stdio/http/sse)
