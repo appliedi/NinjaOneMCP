@@ -941,50 +941,42 @@ const TOOLS = [
 ];
 
 /**
+ * Create a new MCP Server instance with all tool handlers registered.
+ * Shared API client is passed in so all sessions reuse the same OAuth token cache.
+ */
+function createMCPServer(api: NinjaOneAPI): Server {
+  const server = new Server(
+    { name: 'ninjaone-mcp-server', version: '1.3.0' },
+    { capabilities: { tools: {} } }
+  );
+  const handler = new ToolHandler(api);
+  handler.register(server);
+  return server;
+}
+
+/**
  * NinjaONE MCP Server Class with multiple transports
  */
-class NinjaOneMCPServer {
-  private server: Server;
-  private api: NinjaOneAPI;
+/**
+ * Encapsulates all tool routing logic. Shared across Server instances.
+ */
+class ToolHandler {
+  constructor(private api: NinjaOneAPI) {}
 
-  constructor() {
-    try {
-      this.api = new NinjaOneAPI();
-      this.server = new Server(
-        {
-          name: 'ninjaone-mcp-server',
-          version: '1.3.0',
-        },
-        {
-          capabilities: {
-            tools: {}
-          }
-        }
-      );
-      this.setupToolHandlers();
-    } catch (error) {
-      console.error('Failed to initialize NinjaONE MCP Server:', error);
-      throw error;
-    }
-  }
-
-  private setupToolHandlers() {
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  register(server: Server) {
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: TOOLS
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
       try {
         console.error(`Executing tool: ${name}`);
-        const result = await this.routeToolCall(name, args || {});
-        return result;
+        return await this.routeToolCall(name, args || {});
       } catch (error) {
-        if (error instanceof McpError) {
-          throw error;
-        }
+        if (error instanceof McpError) throw error;
         throw new McpError(
-          ErrorCode.InternalError, 
+          ErrorCode.InternalError,
           `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
@@ -1373,6 +1365,22 @@ class NinjaOneMCPServer {
     };
   }
 
+}
+
+class NinjaOneMCPServer {
+  private server: Server;
+  private api: NinjaOneAPI;
+
+  constructor() {
+    try {
+      this.api = new NinjaOneAPI();
+      this.server = createMCPServer(this.api);
+    } catch (error) {
+      console.error('Failed to initialize NinjaONE MCP Server:', error);
+      throw error;
+    }
+  }
+
   async runStdio() {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -1380,12 +1388,12 @@ class NinjaOneMCPServer {
   }
 
   async runHttp(port = 3000) {
-    await createHttpServer(this.server, port);
+    await createHttpServer(() => createMCPServer(this.api), port);
     console.error(`NinjaONE MCP server running on HTTP transport at port ${port}`);
   }
 
   async runSse(port = 3001) {
-    await createSseServer(this.server, port);
+    await createSseServer(() => createMCPServer(this.api), port);
     console.error(`NinjaONE MCP server running on SSE transport at port ${port}`);
   }
 }
