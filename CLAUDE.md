@@ -75,16 +75,20 @@ The `seconds` field is computed at the tool-handler level from `value * MAINTENA
 | `SSE_PORT` | No | Default 3001 |
 | `LOG_LEVEL` | No | `info` (default), `debug` |
 | `CORS_ORIGIN` | No | CORS allowed origin (default `http://localhost`) |
-| `MCP_AUTH_TOKEN` | No | Token for HTTP/SSE auth — when set, all requests (except `/health`) require `?token=` |
+| `MCP_AUTH_TOKEN` | HTTP/SSE | Required in HTTP/SSE mode. All requests (except `/health`) require `?token=` |
 
 MCP clients (Claude Desktop) do NOT load `.env` — credentials must be in the client's JSON config.
 
 ## Security
 
-- **SSRF protection**: `setBaseUrl()` validates URLs against known NinjaRMM regions and `*.ninjarmm.com` domain pattern
+- **SSRF protection**: All URL inputs — `setBaseUrl()`, constructor (`NINJA_BASE_URL`), and auto-detect candidates (`NINJA_BASE_URLS`) — are validated against known NinjaRMM regions and the `*.ninjarmm.com` domain pattern
 - **Request timeouts**: All API calls use 30s `AbortController` timeouts
 - **CORS**: Defaults to `http://localhost` (not wildcard); configurable via `CORS_ORIGIN`
-- **Token auth**: When `MCP_AUTH_TOKEN` is set, HTTP/SSE endpoints require `?token=<value>` on every request (except `/health`). Uses `crypto.timingSafeEqual` to prevent timing attacks
+- **Token auth**: `MCP_AUTH_TOKEN` is **required** in HTTP/SSE mode (server refuses to start without it). All requests (except `/health`) require `?token=<value>`. Uses `crypto.timingSafeEqual` to prevent timing attacks
+- **Error sanitization**: Internal error details are logged server-side; only generic messages are returned to clients
+- **set_region isolation**: `set_region` tool is disabled in HTTP/SSE mode to prevent one session from redirecting all sessions' API calls
+- **Input validation**: `pageSize` capped at 1000, `getAllDevices` capped at 10k devices, service control actions validated against allowlists
+- **Docker**: Runs as non-root user (`mcpuser:mcpgroup`) in production container
 
 ## TypeScript Configuration
 

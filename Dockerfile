@@ -12,6 +12,11 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist/ dist/
 
+RUN addgroup --system --gid 1001 mcpgroup && \
+    adduser --system --uid 1001 --ingroup mcpgroup mcpuser && \
+    chown -R mcpuser:mcpgroup /app
+USER mcpuser
+
 ENV MCP_MODE=http
 ENV HTTP_PORT=8080
 ENV NODE_ENV=production

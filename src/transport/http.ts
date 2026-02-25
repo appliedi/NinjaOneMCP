@@ -17,7 +17,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
  * a matching ?token= query parameter. Skipped entirely when unset.
  */
 function tokenAuth(req: Request, res: Response, next: NextFunction): void {
-  const expected = process.env.MCP_AUTH_TOKEN;
+  const expected = process.env.MCP_AUTH_TOKEN?.trim();
   if (!expected) return next();
   if (req.path === '/health') return next();
 

@@ -218,7 +218,7 @@ const TOOLS = [
       properties: {
         id: { type: 'number', description: 'Device ID' },
         serviceId: { type: 'string', description: 'Service ID' },
-        action: { type: 'string', description: 'Action to perform (e.g., START, STOP, RESTART)' }
+        action: { type: 'string', enum: ['START', 'STOP', 'RESTART'], description: 'Action to perform' }
       },
       required: ['id', 'serviceId', 'action']
     }
@@ -231,7 +231,7 @@ const TOOLS = [
       properties: {
         id: { type: 'number', description: 'Device ID' },
         serviceId: { type: 'string', description: 'Service ID' },
-        startupType: { type: 'string', description: 'Startup type (e.g., AUTOMATIC, MANUAL, DISABLED)' }
+        startupType: { type: 'string', enum: ['AUTOMATIC', 'MANUAL', 'DISABLED'], description: 'Startup type' }
       },
       required: ['id', 'serviceId', 'startupType']
     }
@@ -961,6 +961,13 @@ function createMCPServer(api: NinjaOneAPI): Server {
  * Encapsulates all tool routing logic. Shared across Server instances.
  */
 class ToolHandler {
+  private static readonly MAX_PAGE_SIZE = 1000;
+
+  private clampPageSize(requested?: number, fallback = 50): number {
+    const size = requested ?? fallback;
+    return Math.min(Math.max(1, size), ToolHandler.MAX_PAGE_SIZE);
+  }
+
   constructor(private api: NinjaOneAPI) {}
 
   register(server: Server) {
@@ -975,9 +982,10 @@ class ToolHandler {
         return await this.routeToolCall(name, args || {});
       } catch (error) {
         if (error instanceof McpError) throw error;
+        console.error(`Tool ${name} failed:`, error instanceof Error ? error.message : String(error));
         throw new McpError(
           ErrorCode.InternalError,
-          `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
+          'Tool execution failed. Check server logs for details.'
         );
       }
     });
@@ -1040,9 +1048,11 @@ class ToolHandler {
         }]
       };
     } catch (error) {
+      if (error instanceof McpError) throw error;
+      console.error(`API call failed for ${name}:`, error instanceof Error ? error.message : String(error));
       throw new McpError(
-        ErrorCode.InternalError, 
-        `API call failed: ${error instanceof Error ? error.message : String(error)}`
+        ErrorCode.InternalError,
+        'API call failed. Check server logs for details.'
       );
     }
   }
@@ -1051,7 +1061,7 @@ class ToolHandler {
     switch (name) {
       // Device Management
       case 'get_devices':
-        return this.api.getDevices(args.df, args.pageSize || 50, args.after);
+        return this.api.getDevices(args.df, this.clampPageSize(args.pageSize), args.after);
       case 'get_device':
         return this.api.getDevice(args.id);
       case 'get_device_dashboard_url':
@@ -1135,17 +1145,32 @@ class ToolHandler {
       // Region utilities
       case 'list_regions':
         return this.api.listRegions();
-      case 'set_region':
+      case 'set_region': {
+        const mode = (process.env.MCP_MODE || 'stdio').toLowerCase();
+        if (mode !== 'stdio') {
+          throw new McpError(ErrorCode.InvalidRequest, 'set_region is disabled in multi-session mode (HTTP/SSE). Set NINJA_BASE_URL or NINJA_REGION environment variables instead.');
+        }
         if (args.baseUrl) this.api.setBaseUrl(args.baseUrl);
         else if (args.region) this.api.setRegion(args.region);
         else throw new McpError(ErrorCode.InvalidParams, 'Provide either region or baseUrl');
-        return { ok: true, baseUrl: (this as any).api['baseUrl'] };
+        return { ok: true, baseUrl: this.api.getBaseUrl() };
+      }
 
       // Device Control
-      case 'control_windows_service':
+      case 'control_windows_service': {
+        const validActions = ['START', 'STOP', 'RESTART'];
+        if (!validActions.includes(args.action)) {
+          throw new McpError(ErrorCode.InvalidParams, `action must be one of: ${validActions.join(', ')}`);
+        }
         return this.api.controlWindowsService(args.id, args.serviceId, args.action);
-      case 'configure_windows_service':
+      }
+      case 'configure_windows_service': {
+        const validTypes = ['AUTOMATIC', 'MANUAL', 'DISABLED'];
+        if (!validTypes.includes(args.startupType)) {
+          throw new McpError(ErrorCode.InvalidParams, `startupType must be one of: ${validTypes.join(', ')}`);
+        }
         return this.api.configureWindowsService(args.id, args.serviceId, args.startupType);
+      }
 
       // Device Patching
       case 'scan_device_os_patches':
@@ -1159,61 +1184,61 @@ class ToolHandler {
 
       // System Information Queries
       case 'query_antivirus_status':
-        return this.api.queryAntivirusStatus(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryAntivirusStatus(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_antivirus_threats':
-        return this.api.queryAntivirusThreats(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryAntivirusThreats(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_computer_systems':
-        return this.api.queryComputerSystems(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryComputerSystems(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_device_health':
-        return this.api.queryDeviceHealth(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryDeviceHealth(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_operating_systems':
-        return this.api.queryOperatingSystems(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryOperatingSystems(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_logged_on_users':
-        return this.api.queryLoggedOnUsers(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryLoggedOnUsers(args.df, args.cursor, this.clampPageSize(args.pageSize));
       
       // Hardware Queries
       case 'query_processors':
-        return this.api.queryProcessors(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryProcessors(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_disks':
-        return this.api.queryDisks(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryDisks(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_volumes':
-        return this.api.queryVolumes(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryVolumes(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_network_interfaces':
-        return this.api.queryNetworkInterfaces(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryNetworkInterfaces(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_raid_controllers':
-        return this.api.queryRaidControllers(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryRaidControllers(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_raid_drives':
-        return this.api.queryRaidDrives(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryRaidDrives(args.df, args.cursor, this.clampPageSize(args.pageSize));
       
       // Software and Patches
       case 'query_software':
-        return this.api.querySoftware(args.df, args.cursor, args.pageSize || 50);
+        return this.api.querySoftware(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_os_patches':
-        return this.api.queryOSPatches(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryOSPatches(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_software_patches':
-        return this.api.querySoftwarePatches(args.df, args.cursor, args.pageSize || 50);
+        return this.api.querySoftwarePatches(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_os_patch_installs':
-        return this.api.queryOSPatchInstalls(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryOSPatchInstalls(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_software_patch_installs':
-        return this.api.querySoftwarePatchInstalls(args.df, args.cursor, args.pageSize || 50);
+        return this.api.querySoftwarePatchInstalls(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_windows_services':
-        return this.api.queryWindowsServices(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryWindowsServices(args.df, args.cursor, this.clampPageSize(args.pageSize));
       
       // Custom Fields and Policies
       case 'query_custom_fields':
-        return this.api.queryCustomFields(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryCustomFields(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_custom_fields_detailed':
-        return this.api.queryCustomFieldsDetailed(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryCustomFieldsDetailed(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_scoped_custom_fields':
-        return this.api.queryScopedCustomFields(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryScopedCustomFields(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_scoped_custom_fields_detailed':
-        return this.api.queryScopedCustomFieldsDetailed(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryScopedCustomFieldsDetailed(args.df, args.cursor, this.clampPageSize(args.pageSize));
       case 'query_policy_overrides':
-        return this.api.queryPolicyOverrides(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryPolicyOverrides(args.df, args.cursor, this.clampPageSize(args.pageSize));
 
       // Backup
       case 'query_backup_usage':
-        return this.api.queryBackupUsage(args.df, args.cursor, args.pageSize || 50);
+        return this.api.queryBackupUsage(args.df, args.cursor, this.clampPageSize(args.pageSize));
 
       // Groups & Device Membership
       case 'get_groups':
@@ -1296,14 +1321,18 @@ class ToolHandler {
 
   private async getAllDevices(df?: string): Promise<any[]> {
     const PAGE_SIZE = 1000;
-    const MAX_PAGES = 50;
+    const MAX_DEVICES = 10_000;
     const allDevices: any[] = [];
     let after: number | undefined;
 
-    for (let page = 0; page < MAX_PAGES; page++) {
+    while (allDevices.length < MAX_DEVICES) {
       const batch = await this.api.getDevices(df, PAGE_SIZE, after);
       if (!Array.isArray(batch) || batch.length === 0) break;
       allDevices.push(...batch);
+      if (allDevices.length >= MAX_DEVICES) {
+        allDevices.length = MAX_DEVICES;
+        break;
+      }
       if (batch.length < PAGE_SIZE) break;
       after = batch[batch.length - 1].id;
     }
@@ -1402,19 +1431,35 @@ class NinjaOneMCPServer {
  * Main entry point with transport selection
  */
 async function main() {
-  const mode = process.env.MCP_MODE || 'stdio';
+  const VALID_MODES = ['stdio', 'http', 'sse'] as const;
+  const rawMode = (process.env.MCP_MODE || 'stdio').toLowerCase();
+  if (!VALID_MODES.includes(rawMode as typeof VALID_MODES[number])) {
+    console.error(`FATAL: Invalid MCP_MODE "${process.env.MCP_MODE}". Must be one of: ${VALID_MODES.join(', ')}`);
+    process.exit(1);
+  }
+  const mode = rawMode as typeof VALID_MODES[number];
   const server = new NinjaOneMCPServer();
 
   try {
-    switch (mode.toLowerCase()) {
-      case 'http':
+    switch (mode) {
+      case 'http': {
+        if (!process.env.MCP_AUTH_TOKEN?.trim()) {
+          console.error('FATAL: MCP_AUTH_TOKEN is required in HTTP mode. Set it to a strong random string.');
+          process.exit(1);
+        }
         const httpPort = parseInt(process.env.HTTP_PORT || '3000', 10);
         await server.runHttp(httpPort);
         break;
-      case 'sse':
+      }
+      case 'sse': {
+        if (!process.env.MCP_AUTH_TOKEN?.trim()) {
+          console.error('FATAL: MCP_AUTH_TOKEN is required in SSE mode. Set it to a strong random string.');
+          process.exit(1);
+        }
         const ssePort = parseInt(process.env.SSE_PORT || '3001', 10);
         await server.runSse(ssePort);
         break;
+      }
       case 'stdio':
       default:
         await server.runStdio();

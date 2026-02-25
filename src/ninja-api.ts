@@ -44,7 +44,9 @@ export class NinjaOneAPI {
     const envRegion = (process.env.NINJA_REGION || '').toLowerCase();
 
     if (envBase) {
-      this.baseUrl = this.normalizeBaseUrl(envBase);
+      const normalized = this.normalizeBaseUrl(envBase);
+      this.validateUrl(normalized);
+      this.baseUrl = normalized;
       this.baseUrlExplicit = true;
     } else if (envRegion && NinjaOneAPI.REGION_MAP[envRegion]) {
       this.baseUrl = NinjaOneAPI.REGION_MAP[envRegion];
@@ -139,7 +141,10 @@ export class NinjaOneAPI {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean)
-      .map(u => this.normalizeBaseUrl(u));
+      .map(u => this.normalizeBaseUrl(u))
+      .filter(u => {
+        try { this.validateUrl(u); return true; } catch { return false; }
+      });
     return (fromEnv.length > 0 ? fromEnv : NinjaOneAPI.DEFAULT_CANDIDATES);
   }
 
@@ -211,14 +216,22 @@ export class NinjaOneAPI {
     this.setBaseUrl(mapped);
   }
 
-  public setBaseUrl(url: string): void {
-    const normalized = this.normalizeBaseUrl(url);
+  private validateUrl(normalized: string): void {
     const knownUrls = Object.values(NinjaOneAPI.REGION_MAP);
     if (!knownUrls.includes(normalized) && !NinjaOneAPI.ALLOWED_DOMAIN_PATTERN.test(normalized)) {
       throw new Error(
         `Invalid base URL: ${normalized}. URL must be a known NinjaRMM region or match https://<subdomain>.ninjarmm.com`
       );
     }
+  }
+
+  public getBaseUrl(): string | null {
+    return this.baseUrl;
+  }
+
+  public setBaseUrl(url: string): void {
+    const normalized = this.normalizeBaseUrl(url);
+    this.validateUrl(normalized);
     this.baseUrl = normalized;
     this.baseUrlExplicit = true;
     this.accessToken = null;
