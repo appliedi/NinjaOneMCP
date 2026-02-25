@@ -3,9 +3,31 @@
  * Modern implementation with proper CORS, error handling, and security
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import { timingSafeEqual } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+
+/**
+ * Token authentication middleware.
+ * When MCP_AUTH_TOKEN is set, all requests (except /health) must include
+ * a matching ?token= query parameter. Skipped entirely when unset.
+ */
+function tokenAuth(req: Request, res: Response, next: NextFunction): void {
+  const expected = process.env.MCP_AUTH_TOKEN;
+  if (!expected) return next();
+  if (req.path === '/health') return next();
+
+  const provided = typeof req.query.token === 'string' ? req.query.token : '';
+  if (
+    provided.length === expected.length &&
+    timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
+  ) {
+    return next();
+  }
+
+  res.status(401).json({ error: 'Unauthorized', message: 'Invalid or missing token' });
+}
 
 /**
  * HTTP Transport Server
@@ -24,8 +46,9 @@ export async function createHttpServer(mcpServer: Server, port: number): Promise
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+  app.use(tokenAuth);
 
-  // Health check endpoint
+  // Health check endpoint (exempt from token auth)
   app.get('/health', (req: Request, res: Response) => {
     res.json({
       status: 'healthy',
@@ -127,8 +150,9 @@ export async function createSseServer(mcpServer: Server, port: number): Promise<
   }));
 
   app.use(express.json({ limit: '10mb' }));
+  app.use(tokenAuth);
 
-  // Health check
+  // Health check (exempt from token auth)
   app.get('/health', (req: Request, res: Response) => {
     res.json({
       status: 'healthy',
