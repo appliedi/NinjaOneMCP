@@ -74,7 +74,7 @@ The `seconds` field is computed at the tool-handler level from `value * MAINTENA
 | `HTTP_PORT` | No | Default 3000 |
 | `SSE_PORT` | No | Default 3001 |
 | `LOG_LEVEL` | No | `info` (default), `debug` |
-| `CORS_ORIGIN` | No | CORS allowed origin (default `http://localhost`) |
+| `CORS_ORIGIN` | No | CORS allowed origin (default `*`) |
 | `MCP_AUTH_TOKEN` | HTTP/SSE | Required in HTTP/SSE mode. All requests (except `/health`) require `?token=` |
 
 MCP clients (Claude Desktop) do NOT load `.env` — credentials must be in the client's JSON config.
@@ -83,7 +83,7 @@ MCP clients (Claude Desktop) do NOT load `.env` — credentials must be in the c
 
 - **SSRF protection**: All URL inputs — `setBaseUrl()`, constructor (`NINJA_BASE_URL`), and auto-detect candidates (`NINJA_BASE_URLS`) — are validated against known NinjaRMM regions and the `*.ninjarmm.com` domain pattern
 - **Request timeouts**: All API calls use 30s `AbortController` timeouts
-- **CORS**: Defaults to `http://localhost` (not wildcard); configurable via `CORS_ORIGIN`
+- **CORS**: Defaults to `*` (allow all origins for multi-tool access); configurable via `CORS_ORIGIN`
 - **Token auth**: `MCP_AUTH_TOKEN` is **required** in HTTP/SSE mode (server refuses to start without it). All requests (except `/health`) require `?token=<value>`. Uses `crypto.timingSafeEqual` to prevent timing attacks
 - **Error sanitization**: Internal error details are logged server-side; only generic messages are returned to clients
 - **set_region isolation**: `set_region` tool is disabled in HTTP/SSE mode to prevent one session from redirecting all sessions' API calls
@@ -124,7 +124,7 @@ The server runs on Google Cloud Run in project `ninjaone-mcp`, region `us-centra
 - Each client session gets its own MCP Server + Transport pair via factory pattern; `NinjaOneAPI` instance shared across sessions for OAuth token caching
 - Runs in HTTP mode (`MCP_MODE=http`) on port 8080
 - Secrets stored in GCP Secret Manager (not env vars): `NINJA_CLIENT_ID`, `NINJA_CLIENT_SECRET`, `NINJA_BASE_URL`, `MCP_AUTH_TOKEN`
-- Scales 0-3 instances (scales to zero when idle), 512Mi memory, 1 CPU
+- Scales 1-3 instances (min-instances=1 to preserve MCP sessions), session affinity enabled, 512Mi memory, 1 CPU
 - `/health` endpoint is unauthenticated (for uptime monitors)
 - All other endpoints require `?token=<MCP_AUTH_TOKEN>` query parameter
 
@@ -149,9 +149,10 @@ gcloud run deploy ninjaone-mcp \
   --set-secrets="NINJA_CLIENT_ID=NINJA_CLIENT_ID:latest,NINJA_CLIENT_SECRET=NINJA_CLIENT_SECRET:latest,NINJA_BASE_URL=NINJA_BASE_URL:latest,MCP_AUTH_TOKEN=MCP_AUTH_TOKEN:latest" \
   --memory=512Mi \
   --cpu=1 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=3 \
-  --timeout=60
+  --session-affinity \
+  --timeout=300
 
 # 3. Verify deployment
 curl https://ninjaone-mcp-533144411057.us-central1.run.app/health

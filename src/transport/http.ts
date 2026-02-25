@@ -43,7 +43,7 @@ export async function createHttpServer(
   const app = express();
 
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost',
+    origin: process.env.CORS_ORIGIN || '*',
     credentials: true,
     methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Mcp-Session-Id'],
@@ -51,6 +51,7 @@ export async function createHttpServer(
   }));
 
   app.use(express.json({ limit: '10mb' }));
+  app.use(express.text({ type: '*/*', limit: '10mb' }));
   app.use(tokenAuth);
 
   // Track active transports by session ID
@@ -73,7 +74,16 @@ export async function createHttpServer(
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     if (req.method === 'POST') {
-      const body = req.body;
+      // Handle body parsing: express.json() may not parse if Content-Type is missing
+      let body = req.body;
+      if (typeof body === 'string') {
+        try { body = JSON.parse(body); } catch { /* leave as-is */ }
+      }
+      if (!body || (typeof body === 'object' && Object.keys(body).length === 0 && !Array.isArray(body))) {
+        console.error(`[MCP] POST with empty/unparsed body. Content-Type: ${req.headers['content-type']}`);
+        res.status(400).json({ error: 'Bad Request', message: 'Request body is empty or not valid JSON' });
+        return;
+      }
 
       if (isInitializeRequest(body)) {
         // New session — create transport + server
@@ -98,6 +108,7 @@ export async function createHttpServer(
 
       // Existing session
       if (!sessionId || !transports.has(sessionId)) {
+        console.error(`[MCP] POST non-init without valid session. sessionId: ${sessionId || 'none'}, method: ${body?.method}, active sessions: ${transports.size}`);
         res.status(400).json({ error: 'Bad Request', message: 'Invalid or missing session ID' });
         return;
       }
